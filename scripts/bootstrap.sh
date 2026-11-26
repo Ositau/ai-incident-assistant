@@ -20,6 +20,11 @@ GITHUB_REPO="${GITHUB_REPO:-ai-incident-assistant}"
 SUB_ID=$(az account show --query id -o tsv)
 TENANT_ID=$(az account show --query tenantId -o tsv)
 
+echo "Resource providers (the pipeline identity can't register them itself)"
+for ns in Microsoft.Communication Microsoft.Logic Microsoft.Insights Microsoft.OperationalInsights Microsoft.Storage; do
+  az provider register --namespace "$ns" --wait -o none
+done
+
 echo "Resource groups"
 az group create -n "$RG" -l "$LOCATION" -o none
 az group create -n "$STATE_RG" -l "$LOCATION" -o none
