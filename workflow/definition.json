@@ -2,13 +2,30 @@
   "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "workspaceId": { "type": "String" },
-    "appName": { "type": "String" },
-    "openAiEndpoint": { "type": "String" },
-    "openAiDeployment": { "type": "String" },
-    "acsEndpoint": { "type": "String" },
-    "senderAddress": { "type": "String" },
-    "recipient": { "type": "String" }
+    "workspaceId": {
+      "type": "String"
+    },
+    "appName": {
+      "type": "String"
+    },
+    "openAiEndpoint": {
+      "type": "String"
+    },
+    "openAiDeployment": {
+      "type": "String"
+    },
+    "acsEndpoint": {
+      "type": "String"
+    },
+    "senderAddress": {
+      "type": "String"
+    },
+    "recipient": {
+      "type": "String"
+    },
+    "identityId": {
+      "type": "String"
+    }
   },
   "triggers": {
     "When_an_alert_fires": {
@@ -18,8 +35,12 @@
         "schema": {
           "type": "object",
           "properties": {
-            "schemaId": { "type": "string" },
-            "data": { "type": "object" }
+            "schemaId": {
+              "type": "string"
+            },
+            "data": {
+              "type": "object"
+            }
           }
         }
       }
@@ -30,11 +51,20 @@
       "type": "Response",
       "kind": "Http",
       "runAfter": {},
-      "inputs": { "statusCode": 202, "body": { "status": "accepted" } }
+      "inputs": {
+        "statusCode": 202,
+        "body": {
+          "status": "accepted"
+        }
+      }
     },
     "Alert": {
       "type": "Compose",
-      "runAfter": { "Acknowledge": ["Succeeded"] },
+      "runAfter": {
+        "Acknowledge": [
+          "Succeeded"
+        ]
+      },
       "inputs": {
         "rule": "@{coalesce(triggerBody()?['data']?['essentials']?['alertRule'], 'unknown rule')}",
         "severity": "@{coalesce(triggerBody()?['data']?['essentials']?['severity'], 'unknown')}",
@@ -46,16 +76,28 @@
     },
     "Window": {
       "type": "Compose",
-      "runAfter": { "Alert": ["Succeeded"] },
+      "runAfter": {
+        "Alert": [
+          "Succeeded"
+        ]
+      },
       "inputs": "@{formatDateTime(addMinutes(outputs('Alert')?['fired'], -15), 'yyyy-MM-ddTHH:mm:ssZ')}/@{formatDateTime(addMinutes(outputs('Alert')?['fired'], 2), 'yyyy-MM-ddTHH:mm:ssZ')}"
     },
     "Requests": {
       "type": "Http",
-      "runAfter": { "Window": ["Succeeded"] },
+      "runAfter": {
+        "Window": [
+          "Succeeded"
+        ]
+      },
       "inputs": {
         "method": "POST",
         "uri": "https://api.loganalytics.io/v1/workspaces/@{parameters('workspaceId')}/query",
-        "authentication": { "type": "ManagedServiceIdentity", "audience": "https://api.loganalytics.io" },
+        "authentication": {
+          "type": "ManagedServiceIdentity",
+          "audience": "https://api.loganalytics.io",
+          "identity": "@parameters('identityId')"
+        },
         "body": {
           "timespan": "@{outputs('Window')}",
           "query": "AppRequests | summarize Total=count(), Failed=countif(Success == false), AvgMs=round(avg(DurationMs)), P95Ms=round(percentile(DurationMs, 95)) by Name, ResultCode | order by Failed desc, Total desc | take 15"
@@ -64,11 +106,19 @@
     },
     "Errors": {
       "type": "Http",
-      "runAfter": { "Window": ["Succeeded"] },
+      "runAfter": {
+        "Window": [
+          "Succeeded"
+        ]
+      },
       "inputs": {
         "method": "POST",
         "uri": "https://api.loganalytics.io/v1/workspaces/@{parameters('workspaceId')}/query",
-        "authentication": { "type": "ManagedServiceIdentity", "audience": "https://api.loganalytics.io" },
+        "authentication": {
+          "type": "ManagedServiceIdentity",
+          "audience": "https://api.loganalytics.io",
+          "identity": "@parameters('identityId')"
+        },
         "body": {
           "timespan": "@{outputs('Window')}",
           "query": "AppExceptions | summarize Count=count(), FirstSeen=min(TimeGenerated), LastSeen=max(TimeGenerated) by ExceptionType, Outer=substring(OuterMessage, 0, 300), Innermost=substring(InnermostMessage, 0, 300) | order by Count desc | take 5"
@@ -77,11 +127,19 @@
     },
     "Platform_events": {
       "type": "Http",
-      "runAfter": { "Window": ["Succeeded"] },
+      "runAfter": {
+        "Window": [
+          "Succeeded"
+        ]
+      },
       "inputs": {
         "method": "POST",
         "uri": "https://api.loganalytics.io/v1/workspaces/@{parameters('workspaceId')}/query",
-        "authentication": { "type": "ManagedServiceIdentity", "audience": "https://api.loganalytics.io" },
+        "authentication": {
+          "type": "ManagedServiceIdentity",
+          "audience": "https://api.loganalytics.io",
+          "identity": "@parameters('identityId')"
+        },
         "body": {
           "timespan": "@{outputs('Window')}",
           "query": "ContainerAppSystemLogs_CL | where Reason_s in ('RevisionUpdate', 'RevisionReady', 'ContainerCreated', 'ContainerTerminated', 'ProbeFailed', 'ContainerBackOff', 'ContainerCrashing') | project TimeGenerated, Reason_s, Log=substring(Log_s, 0, 250) | order by TimeGenerated desc | take 15"
@@ -91,9 +149,18 @@
     "Evidence": {
       "type": "Compose",
       "runAfter": {
-        "Requests": ["Succeeded", "Failed"],
-        "Errors": ["Succeeded", "Failed"],
-        "Platform_events": ["Succeeded", "Failed"]
+        "Requests": [
+          "Succeeded",
+          "Failed"
+        ],
+        "Errors": [
+          "Succeeded",
+          "Failed"
+        ],
+        "Platform_events": [
+          "Succeeded",
+          "Failed"
+        ]
       },
       "inputs": {
         "alert": "@outputs('Alert')",
@@ -105,12 +172,22 @@
     },
     "Ask_OpenAI": {
       "type": "Http",
-      "runAfter": { "Evidence": ["Succeeded"] },
-      "limit": { "timeout": "PT1M" },
+      "runAfter": {
+        "Evidence": [
+          "Succeeded"
+        ]
+      },
+      "limit": {
+        "timeout": "PT1M"
+      },
       "inputs": {
         "method": "POST",
         "uri": "@{parameters('openAiEndpoint')}/openai/deployments/@{parameters('openAiDeployment')}/chat/completions?api-version=2024-10-21",
-        "authentication": { "type": "ManagedServiceIdentity", "audience": "https://cognitiveservices.azure.com" },
+        "authentication": {
+          "type": "ManagedServiceIdentity",
+          "audience": "https://cognitiveservices.azure.com",
+          "identity": "@parameters('identityId')"
+        },
         "body": {
           "temperature": 0,
           "response_format": {
@@ -121,15 +198,48 @@
               "schema": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["title", "summary", "likely_cause", "evidence", "impact", "next_steps", "confidence"],
+                "required": [
+                  "title",
+                  "summary",
+                  "likely_cause",
+                  "evidence",
+                  "impact",
+                  "next_steps",
+                  "confidence"
+                ],
                 "properties": {
-                  "title": { "type": "string" },
-                  "summary": { "type": "string" },
-                  "likely_cause": { "type": "string" },
-                  "evidence": { "type": "array", "items": { "type": "string" } },
-                  "impact": { "type": "string" },
-                  "next_steps": { "type": "array", "items": { "type": "string" } },
-                  "confidence": { "type": "string", "enum": ["low", "medium", "high"] }
+                  "title": {
+                    "type": "string"
+                  },
+                  "summary": {
+                    "type": "string"
+                  },
+                  "likely_cause": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "next_steps": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "confidence": {
+                    "type": "string",
+                    "enum": [
+                      "low",
+                      "medium",
+                      "high"
+                    ]
+                  }
                 }
               }
             }
@@ -137,45 +247,89 @@
           "messages": [
             {
               "role": "system",
-              "content": "You are an on-call assistant for the app '@{parameters('appName')}' on Azure Container Apps. An Azure Monitor alert has fired. You are given the alert and evidence from the app's logs for the 15 minutes before it: requests by endpoint, exceptions, and platform events such as new revisions.\nWrite a short incident note for the on-call engineer:\n- title: one line.\n- summary: two or three plain-English sentences: what is wrong and since when.\n- likely_cause: the most likely cause, based only on the evidence. Quote the key error message. If the evidence is not enough, say so.\n- evidence: three to five short bullet facts with numbers and times (UTC).\n- impact: who or what is affected (which endpoints, real users or only test traffic).\n- next_steps: two to four concrete checks or fixes, most useful first.\n- confidence: low, medium or high.\nOnly use the evidence given. Do not invent resources, numbers or times. You only describe the incident; you never take action."
+              "content": "You are an on-call assistant for the app '@{parameters('appName')}' on Azure Container Apps. An Azure Monitor alert has fired. You are given the alert and evidence from the app's logs for the 15 minutes before it: requests by endpoint, exceptions, and platform events such as new revisions.\nWrite a short incident note for the on-call engineer:\n- title: one line.\n- summary: two or three plain-English sentences: what is wrong and since when.\n- likely_cause: the most likely cause, based only on the evidence. Quote the key error message. If the evidence is not enough, say so.\n- evidence: three to five short bullet facts with numbers and times (UTC).\n- impact: who or what is affected (which endpoints, real users or only test traffic).\n- next_steps: two to four concrete checks or fixes, most useful first.\n- confidence: low, medium or high.\nFirst check whether the evidence actually shows the problem the alert describes (for example failed requests or slow responses in the requests table). If it does not, say so plainly in the summary, treat it as a possible false alarm or a problem that has already stopped, and set confidence to low. Requests to /api/selftest are synthetic monitoring traffic, not real users: say which one is affected. Events from a revision rollout (new revision, startup probe retries) are often normal; only call them the cause if failures line up with them in time.\nOnly use the evidence given. Do not invent resources, numbers or times. You only describe the incident; you never take action."
             },
-            { "role": "user", "content": "@{string(outputs('Evidence'))}" }
+            {
+              "role": "user",
+              "content": "@{string(outputs('Evidence'))}"
+            }
           ]
         }
       }
     },
     "Note": {
       "type": "Compose",
-      "runAfter": { "Ask_OpenAI": ["Succeeded"] },
+      "runAfter": {
+        "Ask_OpenAI": [
+          "Succeeded"
+        ]
+      },
       "inputs": "@json(body('Ask_OpenAI')?['choices']?[0]?['message']?['content'])"
     },
     "Fallback_note": {
       "type": "Compose",
-      "runAfter": { "Ask_OpenAI": ["Failed", "TimedOut"] },
+      "runAfter": {
+        "Ask_OpenAI": [
+          "Failed",
+          "TimedOut"
+        ]
+      },
       "inputs": {
         "title": "@{outputs('Alert')?['rule']} (AI summary unavailable)",
         "summary": "The alert fired but the AI summary could not be generated. The raw evidence is below.",
         "likely_cause": "Unknown: see the evidence.",
-        "evidence": ["@{string(outputs('Evidence'))}"],
+        "evidence": [
+          "@{string(outputs('Evidence'))}"
+        ],
         "impact": "Unknown.",
-        "next_steps": ["Open the alert in Azure Monitor and check the logs for the window shown."],
+        "next_steps": [
+          "Open the alert in Azure Monitor and check the logs for the window shown."
+        ],
         "confidence": "low"
       }
     },
     "Incident_note": {
       "type": "Compose",
-      "runAfter": { "Note": ["Succeeded", "Skipped"], "Fallback_note": ["Succeeded", "Skipped"] },
+      "runAfter": {
+        "Note": [
+          "Succeeded",
+          "Skipped"
+        ],
+        "Fallback_note": [
+          "Succeeded",
+          "Skipped"
+        ]
+      },
       "inputs": "@if(equals(actions('Note')?['status'], 'Succeeded'), outputs('Note'), outputs('Fallback_note'))"
     },
     "Email_html": {
       "type": "Compose",
-      "runAfter": { "Incident_note": ["Succeeded"] },
+      "runAfter": {
+        "Incident_note": [
+          "Succeeded"
+        ]
+      },
       "inputs": "<div style=\"font-family:Segoe UI,Arial,sans-serif;max-width:640px;color:#1f2937\"><p style=\"font-size:12px;color:#6b7280;margin:0\">@{parameters('appName')} · @{outputs('Alert')?['severity']} · @{outputs('Alert')?['condition']} at @{outputs('Alert')?['fired']} UTC</p><h2 style=\"margin:6px 0 12px\">@{outputs('Incident_note')?['title']}</h2><p>@{outputs('Incident_note')?['summary']}</p><h3 style=\"margin-bottom:4px\">Likely cause</h3><p>@{outputs('Incident_note')?['likely_cause']}</p><h3 style=\"margin-bottom:4px\">Evidence</h3><ul><li>@{join(outputs('Incident_note')?['evidence'], '</li><li>')}</li></ul><h3 style=\"margin-bottom:4px\">Impact</h3><p>@{outputs('Incident_note')?['impact']}</p><h3 style=\"margin-bottom:4px\">Next steps</h3><ol><li>@{join(outputs('Incident_note')?['next_steps'], '</li><li>')}</li></ol><p style=\"font-size:12px;color:#6b7280;border-top:1px solid #e5e7eb;padding-top:8px\">Alert rule: @{outputs('Alert')?['rule']}. Confidence: @{outputs('Incident_note')?['confidence']}. Written by the AI incident assistant from the logs between @{outputs('Window')} (UTC). It describes the incident only and takes no action.</p></div>"
     },
     "Send_unless_dry_run": {
       "type": "If",
-      "runAfter": { "Email_html": ["Succeeded"] },
-      "expression": { "and": [ { "not": { "equals": [ "@toLower(outputs('Alert')?['dryRun'])", "true" ] } } ] },
+      "runAfter": {
+        "Email_html": [
+          "Succeeded"
+        ]
+      },
+      "expression": {
+        "and": [
+          {
+            "not": {
+              "equals": [
+                "@toLower(outputs('Alert')?['dryRun'])",
+                "true"
+              ]
+            }
+          }
+        ]
+      },
       "actions": {
         "Send_email": {
           "type": "Http",
@@ -184,10 +338,20 @@
           "inputs": {
             "method": "POST",
             "uri": "@{parameters('acsEndpoint')}/emails:send?api-version=2023-03-31",
-            "authentication": { "type": "ManagedServiceIdentity", "audience": "https://communication.azure.com" },
+            "authentication": {
+              "type": "ManagedServiceIdentity",
+              "audience": "https://communication.azure.com",
+              "identity": "@parameters('identityId')"
+            },
             "body": {
               "senderAddress": "@{parameters('senderAddress')}",
-              "recipients": { "to": [ { "address": "@{parameters('recipient')}" } ] },
+              "recipients": {
+                "to": [
+                  {
+                    "address": "@{parameters('recipient')}"
+                  }
+                ]
+              },
               "content": {
                 "subject": "[@{outputs('Alert')?['severity']}] @{outputs('Incident_note')?['title']}",
                 "html": "@{outputs('Email_html')}",
@@ -197,7 +361,9 @@
           }
         }
       },
-      "else": { "actions": {} }
+      "else": {
+        "actions": {}
+      }
     }
   },
   "outputs": {}

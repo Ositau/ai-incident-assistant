@@ -45,7 +45,8 @@ resource "azapi_resource" "workflow" {
   tags      = var.tags
 
   identity {
-    type = "SystemAssigned"
+    type         = "UserAssigned"
+    identity_ids = [azurerm_user_assigned_identity.logic_app.id]
   }
 
   body = {
@@ -60,11 +61,11 @@ resource "azapi_resource" "workflow" {
         acsEndpoint      = { value = "https://${azurerm_communication_service.this.hostname}" }
         senderAddress    = { value = "DoNotReply@${azurerm_email_communication_service_domain.managed.mail_from_sender_domain}" }
         recipient        = { value = var.alert_email }
+        identityId       = { value = azurerm_user_assigned_identity.logic_app.id }
       }
     }
   }
 
-  response_export_values = ["identity.principalId"]
 }
 
 # The Logs API needs the workspace's customer ID (a GUID), not its resource ID.
@@ -75,8 +76,19 @@ resource "azapi_resource_action" "workspace_customer_id" {
   response_export_values = ["properties.customerId"]
 }
 
+# The Logic App runs as its own user-assigned identity. Its principal ID is fixed and known at plan
+# time, so editing the workflow never touches the role assignments. (With a system-assigned identity
+# read from the workflow's output, every workflow edit planned destroy-and-recreate of all three
+# role assignments; the AI plan review caught it.)
+resource "azurerm_user_assigned_identity" "logic_app" {
+  name                = "id-incident-assistant"
+  location            = var.location
+  resource_group_name = data.azurerm_resource_group.this.name
+  tags                = var.tags
+}
+
 locals {
-  logic_app_principal = azapi_resource.workflow.output.identity.principalId
+  logic_app_principal = azurerm_user_assigned_identity.logic_app.principal_id
 }
 
 # ---------- What the Logic App's identity may do (and nothing else) ----------
@@ -100,6 +112,16 @@ resource "azurerm_role_assignment" "send_email" {
   role_definition_name = "Communication and Email Service Owner"
   principal_id         = local.logic_app_principal
   principal_type       = "ServicePrincipal"
+}
+
+# New role assignments take a minute or two to apply. Wait, so the post-deploy test doesn't run
+# before the Logic App can read logs, call Azure OpenAI and send email.
+resource "time_sleep" "roles" {
+  create_duration = "90s"
+  triggers = {
+    principal = local.logic_app_principal
+  }
+  depends_on = [azurerm_role_assignment.read_logs, azurerm_role_assignment.call_openai, azurerm_role_assignment.send_email]
 }
 
 # ---------- Alerts -> action group -> Logic App ----------

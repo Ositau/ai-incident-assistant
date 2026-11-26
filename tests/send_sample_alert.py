@@ -14,6 +14,7 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import json
+import shutil
 import subprocess
 import sys
 import time
@@ -22,10 +23,25 @@ import urllib.request
 API = "api-version=2019-05-01"
 
 
+_TOKEN: dict[str, str] = {}
+
+
 def az_rest(method: str, url: str) -> dict:
-    out = subprocess.run(["az", "rest", "--method", method, "--url", url, "-o", "json"],
-                         capture_output=True, text=True, check=True, shell=sys.platform == "win32").stdout
-    return json.loads(out or "{}")
+    """Call the Azure management API with a token from the Azure CLI sign-in.
+
+    The token is fetched once with `az` (no URL on the command line), then the calls are made
+    directly. On Windows `az` is a batch file, and cmd.exe would split URLs at "&".
+    """
+    if "t" not in _TOKEN:
+        az = shutil.which("az") or "az"
+        _TOKEN["t"] = subprocess.run([az, "account", "get-access-token", "--resource", "https://management.azure.com",
+                                      "--query", "accessToken", "-o", "tsv"],
+                                     capture_output=True, text=True, check=True).stdout.strip()
+    req = urllib.request.Request(url, method=method, data=b"" if method == "POST" else None,
+                                 headers={"Authorization": f"Bearer {_TOKEN['t']}", "Content-Type": "application/json"})
+    with urllib.request.urlopen(req) as r:
+        body = r.read()
+    return json.loads(body or b"{}")
 
 
 def main() -> int:
@@ -76,7 +92,9 @@ def main() -> int:
 
     note_action = az_rest("GET", f"{base}/runs/{run['name']}/actions/Incident_note?{API}")
     with urllib.request.urlopen(note_action["properties"]["outputsLink"]["uri"]) as r:
-        note = json.loads(r.read())["body"]
+        stored = json.loads(r.read())
+    # Compose actions store their value directly; HTTP actions wrap it in "body".
+    note = stored.get("body", stored) if isinstance(stored, dict) and "title" not in stored else stored
     print(json.dumps(note, indent=2))
 
     send = az_rest("GET", f"{base}/runs/{run['name']}/actions/Send_unless_dry_run?{API}")
