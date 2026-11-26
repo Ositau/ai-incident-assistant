@@ -64,7 +64,6 @@ resource "azapi_resource" "workflow" {
     }
   }
 
-  response_export_values = ["identity.principalId"]
 }
 
 # The Logs API needs the workspace's customer ID (a GUID), not its resource ID.
@@ -75,8 +74,17 @@ resource "azapi_resource_action" "workspace_customer_id" {
   response_export_values = ["properties.customerId"]
 }
 
+# Read the Logic App's identity with a separate lookup. Taking it from azapi_resource.workflow's
+# own output makes it "known after apply" whenever the workflow changes, and Terraform would then
+# destroy and recreate all three role assignments on every edit (the AI plan review caught this).
+data "azapi_resource" "workflow_identity" {
+  type                   = "Microsoft.Logic/workflows@2019-05-01"
+  resource_id            = azapi_resource.workflow.id
+  response_export_values = ["identity.principalId"]
+}
+
 locals {
-  logic_app_principal = azapi_resource.workflow.output.identity.principalId
+  logic_app_principal = data.azapi_resource.workflow_identity.output.identity.principalId
 }
 
 # ---------- What the Logic App's identity may do (and nothing else) ----------
