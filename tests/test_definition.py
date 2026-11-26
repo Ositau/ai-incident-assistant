@@ -43,10 +43,12 @@ def test_every_parameter_is_declared():
         assert ref in declared, f"undeclared parameter {ref}"
 
 
-def test_every_http_call_uses_managed_identity():
+def test_every_http_call_uses_the_user_assigned_identity():
     for name, a in ACTIONS.items():
         if a["type"] == "Http":
-            assert a["inputs"]["authentication"]["type"] == "ManagedServiceIdentity", name
+            auth = a["inputs"]["authentication"]
+            assert auth["type"] == "ManagedServiceIdentity", name
+            assert auth["identity"] == "@parameters('identityId')", name
 
 
 def test_trigger_is_answered_straight_away():
