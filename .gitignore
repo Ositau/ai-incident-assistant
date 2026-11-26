@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+tfplan
+plan.json
+*.tfvars
+*.auto.tfvars.json
+.gh-vars.json

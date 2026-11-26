@@ -1,0 +1,100 @@
+# Pull request: unit checks, terraform plan, and an AI review of the plan
+#   (https://github.com/Ositau/ai-terraform-reviewer).
+# Merge to main: unit checks, terraform apply, then send a sample alert to the deployed
+#   Logic App and check the incident note it writes (dry run: no email).
+# Signs in to Azure with workload identity federation. No secrets are stored.
+name: deploy
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: write
+
+env:
+  ARM_USE_OIDC: "true"
+  ARM_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+  ARM_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+  ARM_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+  TF_IN_AUTOMATION: "true"
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pytest && pytest -q
+
+  plan:
+    if: github.event_name == 'pull_request'
+    needs: checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+      - name: Terraform plan
+        env:
+          TF_VARS_JSON: ${{ vars.TF_VARS_JSON }}
+        run: |
+          set -euo pipefail
+          echo "$TF_VARS_JSON" > infra/ci.auto.tfvars.json
+          terraform -chdir=infra init -input=false \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate"
+          terraform -chdir=infra plan -input=false -out=tfplan
+          terraform -chdir=infra show -json tfplan > plan.json
+      - uses: Ositau/ai-terraform-reviewer@main
+        with:
+          plan-json: plan.json
+          azure-openai-endpoint: ${{ vars.AZURE_OPENAI_ENDPOINT }}
+
+  apply:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: checks
+    runs-on: ubuntu-latest
+    concurrency: apply
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.14.7
+          terraform_wrapper: false
+      - name: Terraform apply
+        env:
+          TF_VARS_JSON: ${{ vars.TF_VARS_JSON }}
+        run: |
+          set -euo pipefail
+          echo "$TF_VARS_JSON" > infra/ci.auto.tfvars.json
+          terraform -chdir=infra init -input=false \
+            -backend-config="resource_group_name=${{ vars.TF_STATE_RG }}" \
+            -backend-config="storage_account_name=${{ vars.TF_STATE_ACCOUNT }}" \
+            -backend-config="container_name=tfstate"
+          terraform -chdir=infra apply -input=false -auto-approve
+          echo "WORKFLOW_ID=$(terraform -chdir=infra output -raw logic_app_id)" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Send a sample alert and check the incident note (dry run)
+        run: python tests/send_sample_alert.py --workflow-id "$WORKFLOW_ID"
