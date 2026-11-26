@@ -95,3 +95,10 @@ def test_resolved_alerts_get_a_short_email_and_no_ai_call():
     assert inner["Stop_after_resolved"]["type"] == "Terminate"
     assert inner["Stop_after_resolved"]["inputs"]["runStatus"] == "Succeeded"
     assert "Ask_OpenAI" not in all_actions(inner)
+
+
+def test_definition_is_plain_ascii():
+    # A "·" in the email template arrived as "�" in every email. Use HTML entities instead.
+    raw = (Path(__file__).resolve().parent.parent / "workflow" / "definition.json").read_text(encoding="utf-8")
+    bad = sorted({c for c in raw if ord(c) > 127})
+    assert not bad, f"non-ASCII characters in the workflow: {bad}"
