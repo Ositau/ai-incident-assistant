@@ -44,6 +44,13 @@ def az_rest(method: str, url: str) -> dict:
     return json.loads(body or b"{}")
 
 
+def azure_time(value: str) -> dt.datetime:
+    """Parse Azure timestamps, which have anything from 0 to 7 decimal places ('...:18.2452Z')."""
+    whole, _, frac = value.rstrip("Z").partition(".")
+    return dt.datetime.fromisoformat(whole).replace(
+        microsecond=int((frac + "000000")[:6]), tzinfo=dt.timezone.utc)
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--workflow-id", required=True)
@@ -81,7 +88,7 @@ def main() -> int:
     run = None
     while time.time() < deadline:
         runs = az_rest("GET", f"{base}/runs?{API}&$top=5")["value"]
-        mine = [x for x in runs if dt.datetime.fromisoformat(x["properties"]["startTime"].replace("Z", "+00:00")[:26] + "+00:00") >= started]
+        mine = [x for x in runs if azure_time(x["properties"]["startTime"]) >= started]
         if mine and mine[-1]["properties"]["status"] not in ("Running", "Waiting"):
             run = mine[-1]
             break
