@@ -83,3 +83,15 @@ def test_the_assistant_never_takes_action():
         if a["type"] == "Http":
             assert a["inputs"]["method"] == "POST", name
             assert a["inputs"]["uri"].startswith(allowed), f"{name} calls something unexpected: {a['inputs']['uri']}"
+
+
+def test_resolved_alerts_get_a_short_email_and_no_ai_call():
+    # A "Resolved" notice used to run the whole investigation and read like a new incident.
+    branch = DEF["actions"]["Is_resolved"]
+    assert branch["runAfter"] == {"Alert": ["Succeeded"]}
+    assert DEF["actions"]["Window"]["runAfter"] == {"Is_resolved": ["Succeeded"]}
+    inner = branch["actions"]
+    assert "Send_resolved_email" in inner["Resolved_unless_dry_run"]["actions"]
+    assert inner["Stop_after_resolved"]["type"] == "Terminate"
+    assert inner["Stop_after_resolved"]["inputs"]["runStatus"] == "Succeeded"
+    assert "Ask_OpenAI" not in all_actions(inner)

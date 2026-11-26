@@ -71,13 +71,98 @@
         "condition": "@{coalesce(triggerBody()?['data']?['essentials']?['monitorCondition'], 'Fired')}",
         "fired": "@{coalesce(triggerBody()?['data']?['essentials']?['firedDateTime'], utcNow())}",
         "description": "@{coalesce(triggerBody()?['data']?['essentials']?['description'], '')}",
-        "dryRun": "@{coalesce(triggerBody()?['data']?['customProperties']?['dryRun'], 'false')}"
+        "dryRun": "@{coalesce(triggerBody()?['data']?['customProperties']?['dryRun'], 'false')}",
+        "resolved": "@{coalesce(triggerBody()?['data']?['essentials']?['resolvedDateTime'], '')}"
+      }
+    },
+    "Is_resolved": {
+      "type": "If",
+      "runAfter": {
+        "Alert": [
+          "Succeeded"
+        ]
+      },
+      "expression": {
+        "and": [
+          {
+            "equals": [
+              "@outputs('Alert')?['condition']",
+              "Resolved"
+            ]
+          }
+        ]
+      },
+      "actions": {
+        "Resolved_unless_dry_run": {
+          "type": "If",
+          "runAfter": {},
+          "expression": {
+            "and": [
+              {
+                "not": {
+                  "equals": [
+                    "@toLower(outputs('Alert')?['dryRun'])",
+                    "true"
+                  ]
+                }
+              }
+            ]
+          },
+          "actions": {
+            "Send_resolved_email": {
+              "type": "Http",
+              "runAfter": {},
+              "operationOptions": "DisableAsyncPattern",
+              "inputs": {
+                "method": "POST",
+                "uri": "@{parameters('acsEndpoint')}/emails:send?api-version=2023-03-31",
+                "authentication": {
+                  "type": "ManagedServiceIdentity",
+                  "audience": "https://communication.azure.com",
+                  "identity": "@parameters('identityId')"
+                },
+                "body": {
+                  "senderAddress": "@{parameters('senderAddress')}",
+                  "recipients": {
+                    "to": [
+                      {
+                        "address": "@{parameters('recipient')}"
+                      }
+                    ]
+                  },
+                  "content": {
+                    "subject": "[Resolved] @{outputs('Alert')?['rule']}",
+                    "html": "<p>Azure Monitor reports that <b>@{outputs('Alert')?['rule']}</b> (@{outputs('Alert')?['severity']}) is <b>resolved</b> as of @{outputs('Alert')?['resolved']} UTC.</p><p>Nothing to do unless it fires again. No AI note is written for resolved alerts; the note for the original alert is in the earlier email.</p>",
+                    "plainText": "Azure Monitor reports that @{outputs('Alert')?['rule']} (@{outputs('Alert')?['severity']}) is resolved as of @{outputs('Alert')?['resolved']} UTC.\n\nNothing to do unless it fires again. No AI note is written for resolved alerts; the note for the original alert is in the earlier email."
+                  }
+                }
+              }
+            }
+          },
+          "else": {
+            "actions": {}
+          }
+        },
+        "Stop_after_resolved": {
+          "type": "Terminate",
+          "runAfter": {
+            "Resolved_unless_dry_run": [
+              "Succeeded"
+            ]
+          },
+          "inputs": {
+            "runStatus": "Succeeded"
+          }
+        }
+      },
+      "else": {
+        "actions": {}
       }
     },
     "Window": {
       "type": "Compose",
       "runAfter": {
-        "Alert": [
+        "Is_resolved": [
           "Succeeded"
         ]
       },
