@@ -57,6 +57,13 @@ def hit(url: str) -> tuple[int, float]:
     return code, time.perf_counter() - t
 
 
+def read_alert(base: str, run_name: str) -> dict:
+    action = az_rest("GET", f"{base}/runs/{run_name}/actions/Alert?{API}")
+    with urllib.request.urlopen(action["properties"]["outputsLink"]["uri"]) as r:
+        alert = json.loads(r.read())
+    return alert.get("body", alert)
+
+
 def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--mode", required=True, choices=["errors", "slow", "ai"])
@@ -95,8 +102,13 @@ def main() -> int:
             new = [r for r in runs
                    if dt.datetime.fromisoformat(r["properties"]["startTime"][:19] + "+00:00") > started
                    and r["properties"]["status"] not in ("Running", "Waiting")]
-            if new:
-                run = new[-1]
+            # Skip dry runs (deploy tests) and "Resolved" notices from an earlier drill.
+            for r in reversed(new):
+                alert = read_alert(base, r["name"])
+                if alert.get("condition") == "Fired" and str(alert.get("dryRun")).lower() != "true":
+                    run = r
+                    break
+            if run:
                 break
             time.sleep(10)
         print(f"{now()} self-test responses: {stats}, slowest {slowest:.1f}s")
@@ -105,10 +117,6 @@ def main() -> int:
             print("FAILED: no alert reached the Logic App in time")
             return 1
         print(f"{now()} Logic App run {run['name']}: {run['properties']['status']} (started {run['properties']['startTime'][11:19]} UTC)")
-        trig = az_rest("GET", f"{base}/runs/{run['name']}/actions/Alert?{API}")
-        with urllib.request.urlopen(trig["properties"]["outputsLink"]["uri"]) as r:
-            alert = json.loads(r.read())
-        alert = alert.get("body", alert)
         print(f"alert: {alert.get('rule')} ({alert.get('severity')}, {alert.get('condition')})")
         note_action = az_rest("GET", f"{base}/runs/{run['name']}/actions/Incident_note?{API}")
         with urllib.request.urlopen(note_action["properties"]["outputsLink"]["uri"]) as r:
