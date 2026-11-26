@@ -155,6 +155,7 @@ locals {
     failing = {
       display     = "${var.watched_app_name}: requests failing"
       severity    = 1
+      about       = "Fires when any request fails with a 5xx status code in the last 5 minutes. It is about failed requests, not response time."
       query       = <<-KQL
         AppRequests
         | where Success == false and toint(ResultCode) >= 500
@@ -166,6 +167,7 @@ locals {
     slow = {
       display     = "${var.watched_app_name}: slow responses"
       severity    = 2
+      about       = "Fires when the average response time over the last 5 minutes is above 5 seconds. It is about slow responses, not failures."
       query       = <<-KQL
         AppRequests
         | where Name !has "favicon"
@@ -188,7 +190,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "watch" {
   severity             = each.value.severity
   evaluation_frequency = "PT5M"
   window_duration      = "PT5M"
-  description          = "Watched by the AI incident assistant."
+  description          = each.value.about
   tags                 = var.tags
 
   criteria {
