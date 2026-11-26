@@ -13,6 +13,8 @@ Azure Monitor alert ─▶ action group ─▶ Logic App (Consumption)
                                          └─ email via Azure Communication Services
 ```
 
+Step-by-step guide to build it yourself: [ositauche.com/ai-incident-assistant-azure-logic-apps-openai-terraform](https://ositauche.com/ai-incident-assistant-azure-logic-apps-openai-terraform/)
+
 ## What's here
 
 | Path | What it is |
@@ -26,6 +28,6 @@ Azure Monitor alert ─▶ action group ─▶ Logic App (Consumption)
 
 ## Cost
 
-Pennies: Logic Apps Consumption charges per action run (about 0.1p per incident), email is about £0.0002 per message, each log alert rule is about 10p a month, and the AI note costs a fraction of a penny.
+Pennies: Logic Apps Consumption charges per action run (about 0.1p per incident), email is about £0.0002 per message, each log alert rule checked every 5 minutes is roughly $1.50 a month at list price (the only fixed cost), and the AI note costs a fraction of a penny.
 
 Written by [Osita Uche](https://ositauche.com).
